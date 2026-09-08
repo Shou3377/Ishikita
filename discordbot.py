@@ -44,50 +44,52 @@ async def idregister(ctx, atcoder_user_id: str = None):
     user_id = str(ctx.author.id)
 
     if not db.connect(user_id, atcoder_user_id):
-        await send_message(ctx, "登録に失敗しました．\n")
+        error_message(error_type="connectfail")
     else:
-        await send_message(ctx, "登録に成功しました．\n")
+        await send_message(
+            ctx, "登録に成功しました．\n"
+            "初期化のため`!showstatus`を実行してください．\n")
 
 #userのポイントを確認するコマンド.
 @bot.command()
 async def pointcheck(ctx):
-    user_id = str(ctx.author.id)
-    point = db.get_point(user_id)
+    discord_user_id = str(ctx.author.id)
+    point = db.get_point(discord_user_id)
 
     if point is None:
-        await send_message(ctx, "ポイントを確認できませんでした．\n")
+        error_message(error_type="pointnone")
     else:
-        await send_message(ctx, f"あなたのポイントは {point} です．\n")
+        await send_message(ctx, f"あなたのポイントは {point} です．\n") #showsatatusを使わないと0のまま.
 
 #userのAtCoder IDとポイントを確認するコマンド.
 @bot.command()
 async def checkacid(ctx):
-    user_id = str(ctx.author.id)
-    atcoder_user_id = db.get_atcoder_id(user_id)
-    point = db.get_point(user_id)
+    discord_user_id = str(ctx.author.id)
+    atcoder_user_id = db.get_atcoder_id(discord_user_id)
+    point = db.get_point(discord_user_id)
 
     if atcoder_user_id is None:
-        await send_message(ctx, "AtCoder user ID を確認できませんでした．\n")
+        error_message(error_type="acidnone")
     else:
         await send_message(ctx, f"あなたの AtCoder user ID は {atcoder_user_id} です．\n")
 
 #userのステータスを表示するコマンド.
 @bot.command()
 async def showstatus(ctx):
+
     discord_user_id = str(ctx.author.id)
     atcoder_user_id = db.get_atcoder_id(discord_user_id)
 
-
     if atcoder_user_id is None:
-        await send_message(ctx, "AtCoder user ID を確認できませんでした．\n")
+        error_message(error_type="acidnone")
     else:
         nowac = await asyncio.to_thread(ac.atcuser.getnumofac, atcoder_user_id)
         if nowac is None:
-            await send_message(ctx, "AC数を取得できませんでした。時間をおいて再度お試しください。")
+            error_message(error_type="acnone")
             return
         result = db.update_ac_points(discord_user_id, atcoder_user_id, nowac)
         if result is None:
-            await send_message(ctx, "ポイントの更新に失敗しました。")
+            error_message(error_type="updatefail")
             return
         additional_ac, new_point = result
         text = ""
@@ -119,16 +121,10 @@ async def ping(ctx):
 
 # botの実行.
 
-@tasks.loop(seconds=INTERVAL)
-async def check_data():
-    print("running\n")
-
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name} (ID: {bot.user.id})')
     print('------')
-    if not check_data.is_running():
-        check_data.start()
 
 def executebot():
     try:
@@ -140,3 +136,13 @@ def executebot():
     except Exception as e:
         print(f"Error occurred while running the bot: {e}")
         sys.exit(1)
+
+def error_message(error_type):
+    if error_type == "pointnone":
+        send_message("ポイントを確認できませんでした．\n")
+    elif error_type == "acidnone":
+        send_message("AtCoder user ID を確認できませんでした．\n")
+    elif error_type == "acnone":
+        send_message("AC数を取得できませんでした。時間をおいて再度お試しください。\n")
+    elif error_type == "updatefail":
+        send_message("ポイントの更新に失敗しました。")
