@@ -44,34 +44,11 @@ async def idregister(ctx, atcoder_user_id: str = None):
     user_id = str(ctx.author.id)
 
     if not db.connect(user_id, atcoder_user_id):
-        error_message(error_type="connectfail")
+        await error_message(ctx, error_type="connectfail")
     else:
         await send_message(
             ctx, "登録に成功しました．\n"
             "初期化のため`!showstatus`を実行してください．\n")
-
-#userのポイントを確認するコマンド.
-@bot.command()
-async def pointcheck(ctx):
-    discord_user_id = str(ctx.author.id)
-    point = db.get_point(discord_user_id)
-
-    if point is None:
-        error_message(error_type="pointnone")
-    else:
-        await send_message(ctx, f"あなたのポイントは {point} です．\n") #showsatatusを使わないと0のまま.
-
-#userのAtCoder IDとポイントを確認するコマンド.
-@bot.command()
-async def checkacid(ctx):
-    discord_user_id = str(ctx.author.id)
-    atcoder_user_id = db.get_atcoder_id(discord_user_id)
-    point = db.get_point(discord_user_id)
-
-    if atcoder_user_id is None:
-        error_message(error_type="acidnone")
-    else:
-        await send_message(ctx, f"あなたの AtCoder user ID は {atcoder_user_id} です．\n")
 
 #userのステータスを表示するコマンド.
 @bot.command()
@@ -81,20 +58,21 @@ async def showstatus(ctx):
     atcoder_user_id = db.get_atcoder_id(discord_user_id)
 
     if atcoder_user_id is None:
-        error_message(error_type="acidnone")
+        await error_message(ctx, error_type="acidnone")
     else:
-        nowac = await asyncio.to_thread(ac.atcuser.getnumofac, atcoder_user_id)
-        if nowac is None:
-            error_message(error_type="acnone")
+        stats = await asyncio.to_thread(ac.atcuser.get_ac_points, atcoder_user_id)
+        if stats is None:
+            await error_message(ctx, error_type="acnone")
             return
-        result = db.update_ac_points(discord_user_id, atcoder_user_id, nowac)
+        nowac, difficulty_sum, unrated_count = stats
+        result = db.update_ac_points(discord_user_id, atcoder_user_id, nowac, difficulty_sum)
         if result is None:
-            error_message(error_type="updatefail")
+            await error_message(ctx, error_type="updatefail")
             return
         additional_ac, new_point = result
         text = ""
         if additional_ac > 0:
-            text += f"ポイントが追加されました\n"
+            text += f"ポイントを更新しました\n"
             text += f"AC数 +={additional_ac} -> {new_point}pt\n"
             text += f"\n"
 
@@ -103,7 +81,8 @@ async def showstatus(ctx):
             text +
             f"{atcoder_user_id}\n" +
             f"   AC数 {nowac}\n" +
-            f"   ポイント : {new_point}\n" +
+            f"   ポイント（diff合計） : {new_point}\n" +
+            (f"   diff未設定 : {unrated_count}問（0点）\n" if unrated_count else "") +
             f"\n" +
             f"https://atcoder.jp/users/{atcoder_user_id}\n"
         )
@@ -117,7 +96,7 @@ async def send_message(ctx, message):
 # botの起動確認.
 @bot.command()
 async def ping(ctx):
-    await ctx.send("pong")
+    await ctx.send("pong!")
 
 # botの実行.
 
@@ -137,12 +116,12 @@ def executebot():
         print(f"Error occurred while running the bot: {e}")
         sys.exit(1)
 
-def error_message(error_type):
-    if error_type == "pointnone":
-        send_message("ポイントを確認できませんでした．\n")
-    elif error_type == "acidnone":
-        send_message("AtCoder user ID を確認できませんでした．\n")
-    elif error_type == "acnone":
-        send_message("AC数を取得できませんでした。時間をおいて再度お試しください。\n")
-    elif error_type == "updatefail":
-        send_message("ポイントの更新に失敗しました。")
+async def error_message(ctx, error_type):
+    messages = {
+        "pointnone": "ポイントを確認できませんでした。",
+        "acidnone": "AtCoder user ID を確認できませんでした。",
+        "acnone": "AC一覧またはdifficultyを取得できませんでした。時間をおいて再度お試しください。",
+        "updatefail": "ポイントの更新に失敗しました。",
+        "connectfail": "登録に失敗しました。",
+    }
+    await send_message(ctx, messages[error_type])
