@@ -12,6 +12,8 @@ from discord.ext import commands, tasks
 
 import managedb as db
 import atcoderapi as ac
+import weekly
+import logging
 
 INTERVAL = 300 #データをチェックする間隔(s).
 
@@ -26,7 +28,28 @@ intents.messages = True
 intents.message_content = True
 
 #コマンドを取得.
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
+
+
+@bot.command()
+async def help(ctx):
+    await send_message(
+        ctx,
+        "!idregister AtCoderユーザー名\n"
+        "   自分のDiscordアカウントにAtCoder IDを登録します.\n"
+        "   例：!idregister chokudai\n"
+        "!showstatus\n"
+        "   今週と累計のAC数・獲得ポイントを表示します.\n"
+        "!ping\n"
+        "   Botが動いていれば `pong!` と返信します.\n"
+        "!help\n"
+        "   この案内を表示します.\n"
+        "\n"
+        "今週は日曜0時（日本時間）を始点とします.\n"
+        "ACした問題のdifficultyの合計をポイントとして集計します. 再ACは重複加算せず, "
+        "diff未設定の問題は0点です.\n"
+        "毎週土曜24時（日曜0時）以降に, 前の1週間の獲得ポイントを自動通知します."
+    )
 
 # discord userと atcoder userを紐付けるコマンド.
 @bot.command()
@@ -60,29 +83,22 @@ async def showstatus(ctx):
     if atcoder_user_id is None:
         await error_message(ctx, error_type="acidnone")
     else:
-        stats = await asyncio.to_thread(ac.atcuser.get_ac_points, atcoder_user_id)
+        stats = await asyncio.to_thread(weekly.current_week_points, atcoder_user_id, include_total=True)
         if stats is None:
             await error_message(ctx, error_type="acnone")
             return
-        nowac, difficulty_sum, unrated_count = stats
-        result = db.update_ac_points(discord_user_id, atcoder_user_id, nowac, difficulty_sum)
-        if result is None:
-            await error_message(ctx, error_type="updatefail")
-            return
-        additional_ac, new_point = result
-        text = ""
-        if additional_ac > 0:
-            text += f"ポイントを更新しました\n"
-            text += f"AC数 +={additional_ac} -> {new_point}pt\n"
-            text += f"\n"
+        start, now, (nowac, new_point, unrated_count), (total_ac, total_point, total_unrated) = stats
 
         await send_message(
             ctx,
-            text +
             f"{atcoder_user_id}\n" +
-            f"   AC数 {nowac}\n" +
-            f"   ポイント（diff合計） : {new_point}\n" +
+            f"   今週の新規AC数 : {nowac}\n" +
+            f"   今週の獲得ポイント（diff合計） : {new_point:,}pt\n" +
             (f"   diff未設定 : {unrated_count}問（0点）\n" if unrated_count else "") +
+            f"\n累計 :\n" +
+            f"   累計AC数 : {total_ac}\n" +
+            f"   累計獲得ポイント（diff合計） : {total_point:,}pt\n" +
+            (f"   diff未設定 : {total_unrated}問（0点）\n" if total_unrated else "") +
             f"\n" +
             f"https://atcoder.jp/users/{atcoder_user_id}\n"
         )
@@ -100,10 +116,30 @@ async def ping(ctx):
 
 # botの実行.
 
+@tasks.loop(minutes=5)
+async def weekly_report():
+    try:
+        key, pages = await asyncio.to_thread(weekly.prepare_report)
+        if not pages:
+            return
+        channel = bot.get_channel(CHANNEL_ID) or await bot.fetch_channel(CHANNEL_ID)
+        for page, content in pages:
+            await channel.send(content, allowed_mentions=discord.AllowedMentions.none())
+            await asyncio.to_thread(weekly.mark_sent, key, page)
+    except Exception:
+        logging.exception('週間通知に失敗しました。次回チェック時に再試行します。')
+
+
+@weekly_report.before_loop
+async def before_weekly_report():
+    await bot.wait_until_ready()
+
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name} (ID: {bot.user.id})')
     print('------')
+    if not weekly_report.is_running():
+        weekly_report.start()
 
 def executebot():
     try:

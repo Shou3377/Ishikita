@@ -122,7 +122,7 @@ class atcuser:
                 if not submissions:
                     return db.get_ac_cache(atcoder_user_id)[1]
 
-                accepted = set()
+                accepted = {}
                 latest_second = from_second - 1
                 for submission in submissions:
                     if not isinstance(submission, dict):
@@ -138,7 +138,7 @@ class atcuser:
                         return None
                     latest_second = max(latest_second, epoch_second)
                     if result == "AC":
-                        accepted.add(problem_id)
+                        accepted[problem_id] = min(accepted.get(problem_id, epoch_second), epoch_second)
 
                 db.save_ac_cache(atcoder_user_id, latest_second, accepted)
                 from_second = latest_second + 1

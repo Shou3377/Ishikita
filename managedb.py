@@ -8,6 +8,9 @@
 
 import sqlite3
 from contextlib import closing
+from pathlib import Path
+
+DB_PATH = Path(__file__).resolve().parent / 'user_data.db'
 
 
 def _init_ac_cache(conn):
@@ -24,6 +27,11 @@ def _init_ac_cache(conn):
             PRIMARY KEY (atcoder_user_id, problem_id)
         )
     ''')
+    columns = {row[1] for row in conn.execute('PRAGMA table_info(atcoder_ac_problems)')}
+    if 'first_ac_second' not in columns:
+        conn.execute('ALTER TABLE atcoder_ac_problems ADD COLUMN first_ac_second INTEGER')
+        # Re-fetch history once to recover first-AC dates for existing caches.
+        conn.execute('DELETE FROM atcoder_sync')
 
 
 def get_ac_cache(atcoder_user_id):
@@ -31,7 +39,7 @@ def get_ac_cache(atcoder_user_id):
 
     SQLite errors propagate to the caller; a missing cache starts at -1.
     """
-    with closing(sqlite3.connect('user_data.db')) as conn, conn:
+    with closing(sqlite3.connect(DB_PATH)) as conn, conn:
         _init_ac_cache(conn)
         row = conn.execute(
             'SELECT last_submission_second FROM atcoder_sync WHERE atcoder_user_id = ?',
@@ -46,12 +54,15 @@ def get_ac_cache(atcoder_user_id):
 
 def save_ac_cache(atcoder_user_id, last_submission_second, problem_ids):
     """Commit AC IDs and their cursor together; concurrent saves cannot regress."""
-    with closing(sqlite3.connect('user_data.db')) as conn, conn:
+    with closing(sqlite3.connect(DB_PATH)) as conn, conn:
         _init_ac_cache(conn)
-        conn.executemany(
-            'INSERT OR IGNORE INTO atcoder_ac_problems VALUES (?, ?)',
-            ((atcoder_user_id, problem_id) for problem_id in problem_ids),
-        )
+        conn.executemany('''
+            INSERT INTO atcoder_ac_problems (atcoder_user_id, problem_id, first_ac_second)
+            VALUES (?, ?, ?)
+            ON CONFLICT(atcoder_user_id, problem_id) DO UPDATE SET
+                first_ac_second = CASE WHEN first_ac_second IS NULL THEN excluded.first_ac_second
+                    ELSE MIN(first_ac_second, excluded.first_ac_second) END
+        ''', ((atcoder_user_id, problem_id, second) for problem_id, second in problem_ids.items()))
         conn.execute('''
             INSERT INTO atcoder_sync VALUES (?, ?)
             ON CONFLICT(atcoder_user_id) DO UPDATE SET
@@ -60,7 +71,7 @@ def save_ac_cache(atcoder_user_id, last_submission_second, problem_ids):
 
 def connect(discord_user_id, atcoder_user_id):
     try:
-        conn = sqlite3.connect('user_data.db')
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
         # Create table if it doesn't exist
@@ -89,7 +100,7 @@ def connect(discord_user_id, atcoder_user_id):
 
 def get_atcoder_id(discord_user_id):
     try:
-        conn = sqlite3.connect('user_data.db')
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
         cursor.execute('''
@@ -109,7 +120,7 @@ def get_atcoder_id(discord_user_id):
 
 def get_point(discord_user_id):
     try:
-        conn = sqlite3.connect('user_data.db')
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
         cursor.execute('''
@@ -129,7 +140,7 @@ def get_point(discord_user_id):
 
 def get_num_of_ac(discord_user_id):
     try:
-        conn = sqlite3.connect('user_data.db')
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
         cursor.execute('''
@@ -149,7 +160,7 @@ def get_num_of_ac(discord_user_id):
 
 def update_point(discord_user_id, new_point):
     try:
-        conn = sqlite3.connect('user_data.db')
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
         cursor.execute('''
@@ -168,7 +179,7 @@ def update_ac_points(discord_user_id, atcoder_user_id, now_ac, difficulty_sum):
     """Replace the old score with the current total of solved difficulties."""
     conn = None
     try:
-        conn = sqlite3.connect('user_data.db')
+        conn = sqlite3.connect(DB_PATH)
         conn.execute('BEGIN IMMEDIATE')
         row = conn.execute(
             'SELECT point, num_of_ac FROM user_mapping WHERE discord_user_id = ? AND atcoder_user_id = ?',
