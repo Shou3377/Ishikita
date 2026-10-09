@@ -13,6 +13,24 @@ from pathlib import Path
 DB_PATH = Path(__file__).resolve().parent / 'user_data.db'
 
 
+def _init_settings(conn):
+    conn.execute('CREATE TABLE IF NOT EXISTS bot_settings (name TEXT PRIMARY KEY, value TEXT NOT NULL)')
+
+
+def weekly_notifications_enabled():
+    with closing(sqlite3.connect(DB_PATH)) as conn, conn:
+        _init_settings(conn)
+        row = conn.execute("SELECT value FROM bot_settings WHERE name = 'weekly_notifications'").fetchone()
+        return row is None or row[0] == 'on'
+
+
+def set_weekly_notifications(enabled):
+    with closing(sqlite3.connect(DB_PATH)) as conn, conn:
+        _init_settings(conn)
+        conn.execute('''INSERT INTO bot_settings (name, value) VALUES ('weekly_notifications', ?)
+            ON CONFLICT(name) DO UPDATE SET value = excluded.value''', ('on' if enabled else 'off',))
+
+
 def _init_ac_cache(conn):
     conn.execute('''
         CREATE TABLE IF NOT EXISTS atcoder_sync (

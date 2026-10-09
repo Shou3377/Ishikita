@@ -2,3 +2,6 @@
 *.code-workspace
 .vscode
 *.db
+*.db-wal
+*.db-shm
+*.db-journal

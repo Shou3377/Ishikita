@@ -71,7 +71,7 @@ def prepare_report(now=None):
         if ac.atcuser.getaclist(atcoder_id) is None:
             raise RuntimeError('週間通知: AC履歴取得失敗')
         count, points, _ = period_points(atcoder_id, int(start.timestamp()), key, difficulties)
-        lines.append(f'<@{discord_id}>: {points:,}pt（新規AC {count}問）')
+        lines.append(f'<{discord_id}>: {points:,}pt（新規AC {count}問）')
         time.sleep(1.1)
     header = f'週間獲得ポイント（日本時間）\n{start:%Y/%m/%d} 00:00 ～ {end:%Y/%m/%d} 00:00\n'
     pages = []

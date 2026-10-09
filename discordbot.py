@@ -44,6 +44,10 @@ async def help(ctx):
         "   Botが動いていれば `pong!` と返信します.\n"
         "!help\n"
         "   この案内を表示します.\n"
+        "!weekly\n"
+        "   週間通知のON/OFFを確認します.\n"
+        "!weekly off / !weekly on\n"
+        "   週間通知を停止／再開します（サーバー管理権限が必要）.\n"
         "\n"
         "今週は日曜0時（日本時間）を始点とします.\n"
         "ACした問題のdifficultyの合計をポイントとして集計します. 再ACは重複加算せず, "
@@ -116,14 +120,38 @@ async def ping(ctx):
 
 # botの実行.
 
+@bot.command(name='weekly')
+async def weekly_settings(ctx, mode: str = None):
+    if ctx.channel.id != CHANNEL_ID:
+        return
+    mode = mode.lower() if mode else None
+    if mode not in (None, 'on', 'off'):
+        await send_message(ctx, '使い方: !weekly（状態確認） / !weekly off（停止） / !weekly on（再開）')
+        return
+    if mode is not None:
+        if ctx.guild is None or not ctx.author.guild_permissions.manage_guild:
+            await send_message(ctx, '設定の変更には「サーバー管理」権限が必要です。')
+            return
+        db.set_weekly_notifications(mode == 'on')
+    enabled = db.weekly_notifications_enabled()
+    message = '週間通知はONです。' if enabled else '週間通知はOFFです。'
+    if mode == 'on':
+        message += '次回チェック時に、直近の終了済み週が未通知なら送信します。'
+    await send_message(ctx, message)
+
+
 @tasks.loop(minutes=5)
 async def weekly_report():
     try:
+        if not db.weekly_notifications_enabled():
+            return
         key, pages = await asyncio.to_thread(weekly.prepare_report)
         if not pages:
             return
         channel = bot.get_channel(CHANNEL_ID) or await bot.fetch_channel(CHANNEL_ID)
         for page, content in pages:
+            if not db.weekly_notifications_enabled():
+                return
             await channel.send(content, allowed_mentions=discord.AllowedMentions.none())
             await asyncio.to_thread(weekly.mark_sent, key, page)
     except Exception:
