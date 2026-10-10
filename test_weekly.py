@@ -61,10 +61,11 @@ class WeeklyTests(unittest.TestCase):
         db.save_ac_cache('user', b, {'old': a - 1, 'first': a, 'last': b - 1, 'next': b})
         db.save_ac_cache('user', b, {'old': a + 100})
         with patch.object(weekly.ac, 'get_difficulties', return_value={'old': 900, 'first': 100, 'last': 200, 'next': 500}), patch.object(weekly.ac.atcuser, 'getaclist', return_value=['old', 'first', 'last', 'next']), patch.object(weekly.time, 'sleep'):
-            key, pages = weekly.prepare_report(now)
+            key, pages = weekly.prepare_report(now, {'123': 'Alice'})
         self.assertEqual(len(pages), 1)
-        self.assertIn('300pt', pages[0][1])
-        self.assertEqual(weekly.prepare_report(now), (key, pages))
+        self.assertIn('Alice: 300pt', pages[0][1])
+        self.assertNotIn('<123>', pages[0][1])
+        self.assertEqual(weekly.prepare_report(now, {'123': 'Alice'}), (key, pages))
         weekly.mark_sent(key, pages[0][0])
         self.assertEqual(weekly.prepare_report(now), (key, []))
 
