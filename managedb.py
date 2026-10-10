@@ -92,7 +92,6 @@ def connect(discord_user_id, atcoder_user_id):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # Create table if it doesn't exist
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS user_mapping (
                 discord_user_id TEXT PRIMARY KEY,
@@ -101,8 +100,23 @@ def connect(discord_user_id, atcoder_user_id):
                 num_of_ac INTEGER DEFAULT 0
             )
         ''')
+        columns = {row[1] for row in cursor.execute('PRAGMA table_info(user_mapping)')}
+        if 'display_name' in columns:
+            cursor.execute('ALTER TABLE user_mapping RENAME TO user_mapping_old')
+            cursor.execute('''
+                CREATE TABLE user_mapping (
+                    discord_user_id TEXT PRIMARY KEY,
+                    atcoder_user_id TEXT NOT NULL,
+                    point INTEGER DEFAULT 0,
+                    num_of_ac INTEGER DEFAULT 0
+                )
+            ''')
+            cursor.execute('''
+                INSERT INTO user_mapping (discord_user_id, atcoder_user_id, point, num_of_ac)
+                SELECT discord_user_id, atcoder_user_id, point, num_of_ac FROM user_mapping_old
+            ''')
+            cursor.execute('DROP TABLE user_mapping_old')
 
-        # Insert or replace the user mapping
         cursor.execute('''
             INSERT OR REPLACE INTO user_mapping (discord_user_id, atcoder_user_id, point, num_of_ac)
             VALUES (?, ?, ?, ?)

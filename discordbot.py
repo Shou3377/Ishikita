@@ -5,7 +5,7 @@ discription:
     register(ctx) : a command to register a discord user ID and an AtCoder user ID.
 """
 
-import asyncio, os, sys, discord
+import asyncio, os, sqlite3, sys, time, discord
 from pathlib import Path
 from dotenv import load_dotenv
 from discord.ext import commands, tasks
@@ -40,6 +40,8 @@ async def help(ctx):
         "   例：!idregister chokudai\n"
         "!showstatus\n"
         "   今週と累計のAC数・獲得ポイントを表示します.\n"
+        "!weeklyreport\n"
+        "   今週の獲得ポイント一覧を表示します.\n"
         "!ping\n"
         "   Botが動いていれば `pong!` と返信します.\n"
         "!help\n"
@@ -107,6 +109,50 @@ async def showstatus(ctx):
             f"https://atcoder.jp/users/{atcoder_user_id}\n"
         )
 
+@bot.command()
+async def weeklyreport(ctx):
+    if ctx.channel.id != CHANNEL_ID:
+        return
+    try:
+        with sqlite3.connect(db.DB_PATH) as conn:
+            users = conn.execute(
+                'SELECT discord_user_id, atcoder_user_id FROM user_mapping ORDER BY discord_user_id'
+            ).fetchall()
+    except sqlite3.Error:
+        await send_message(ctx, 'ユーザー情報を読み込めませんでした。')
+        return
+
+    if not users:
+        await send_message(ctx, '登録ユーザーはいません。')
+        return
+
+    difficulties = ac.get_difficulties()
+    if difficulties is None:
+        await send_message(ctx, 'difficultyの取得に失敗しました。時間をおいて再度お試しください。')
+        return
+
+    user_names = {
+        str(member.id): member.global_name or member.display_name or member.name
+        for member in bot.get_all_members()
+    }
+    start, end = weekly.week_bounds()
+    lines = []
+    for discord_id, atcoder_id in users:
+        if ac.atcuser.getaclist(atcoder_id) is None:
+            continue
+        count, points, _ = weekly.period_points(atcoder_id, int(start.timestamp()), int(end.timestamp()), difficulties)
+        name = user_names.get(str(discord_id), str(discord_id))
+        lines.append(f'{name}: {points:,}pt（新規AC {count}問）')
+        time.sleep(1.1)
+
+    if not lines:
+        await send_message(ctx, '今週のACデータを取得できませんでした。')
+        return
+
+    header = f'週間獲得ポイント（日本時間）\n{start:%Y/%m/%d} 00:00 ～ {end:%Y/%m/%d} 00:00\n'
+    message = header + ''.join(f'{line}\n' for line in lines)
+    await send_message(ctx, message)
+
 #メッセージを送信する. 特定のチャンネルにのみ送信する.
 async def send_message(ctx, message):
     if ctx.channel.id == CHANNEL_ID:
@@ -145,7 +191,11 @@ async def weekly_report():
     try:
         if not db.weekly_notifications_enabled():
             return
-        key, pages = await asyncio.to_thread(weekly.prepare_report)
+        user_names = {
+            str(member.id): member.global_name or member.display_name or member.name
+            for member in bot.get_all_members()
+        }
+        key, pages = await asyncio.to_thread(weekly.prepare_report, user_names=user_names)
         if not pages:
             return
         channel = bot.get_channel(CHANNEL_ID) or await bot.fetch_channel(CHANNEL_ID)

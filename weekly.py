@@ -47,9 +47,10 @@ def current_week_points(atcoder_id, now=None, include_total=False):
         return None
 
 
-def prepare_report(now=None):
+def prepare_report(now=None, user_names=None):
     start, end = week_bounds(now)
     key = int(end.timestamp())
+    user_names = user_names or {}
     with closing(sqlite3.connect(db.DB_PATH)) as conn, conn:
         conn.execute('''CREATE TABLE IF NOT EXISTS weekly_reports (
             week_end INTEGER, page INTEGER, content TEXT NOT NULL,
@@ -71,7 +72,8 @@ def prepare_report(now=None):
         if ac.atcuser.getaclist(atcoder_id) is None:
             raise RuntimeError('週間通知: AC履歴取得失敗')
         count, points, _ = period_points(atcoder_id, int(start.timestamp()), key, difficulties)
-        lines.append(f'<{discord_id}>: {points:,}pt（新規AC {count}問）')
+        name = user_names.get(str(discord_id), str(discord_id))
+        lines.append(f'{name}: {points:,}pt（新規AC {count}問）')
         time.sleep(1.1)
     header = f'週間獲得ポイント（日本時間）\n{start:%Y/%m/%d} 00:00 ～ {end:%Y/%m/%d} 00:00\n'
     pages = []
